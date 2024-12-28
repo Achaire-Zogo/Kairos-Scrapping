@@ -24,13 +24,17 @@ Une application FastAPI qui convertit n'importe quel site web en flux RSS en ext
 
 1. Clonez le dépôt :
 ```bash
-git clone [votre-repo]
+git clone https://github.com/Achaire-Zogo/Kairos-Scrapping.git
 cd Kairos-Scrapping
 ```
 
 2. Installez les dépendances :
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt 
+```
+Ou 
+```bash
+pip3 install -r requirements.txt
 ```
 
 ## 🚀 Démarrage
@@ -39,17 +43,23 @@ pip install -r requirements.txt
 ```bash
 python main.py
 ```
+OU
+```bash
+python3 main.py
+```
 
 2. L'application sera accessible à l'adresse : `http://localhost:5001`
 
 ## 📖 Utilisation
+
+1. Vous pouvez tester ici : `http://localhost:5001/docs`
 
 ### Endpoint principal
 
 - URL : `/feed`
 - Méthode : GET
 - Paramètre : `url` (l'URL du site à scraper)
-- Exemple : `http://localhost:8000/feed?url=https://example.com`
+- Exemple : `http://localhost:5000/feed?url=https://example.com`
 
 ### Format de retour
 
