@@ -1,0 +1,63 @@
+services:
+  service-user:
+    build: .
+    ports:
+      - 5001:5001
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - mysql_db_service_user
+    networks:
+      - kairos-network
+  
+
+  ### Service User Database ###
+
+  mysql_db_service_user:
+    restart: always
+    image: mysql:8.0
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_DATABASE: service_user_db
+      MYSQL_ROOT_PASSWORD: kairos
+      MYSQL_PASSWORD: kairos
+      MYSQL_USER: kairos
+    ports:
+      - "13321:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "kairos", "-pkairos"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+    networks:
+      - kairos-network
+
+  
+  ### Service PHPMyAdmin ###
+
+  phpmyadmin:
+    restart: always
+    image: phpmyadmin/phpmyadmin:latest
+    environment:
+      PMA_HOST: mysql_db_service_user
+      PMA_USER: kairos
+      PMA_PASSWORD: kairos
+    ports:
+      - "7021:80"
+    depends_on:
+      - mysql_db_service_user
+    networks:
+      - kairos-network
+
+networks:
+  kairos-network:
+
+volumes:
+  mysql_data:
+    driver: local
