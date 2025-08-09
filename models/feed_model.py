@@ -1,10 +1,11 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import Index, String, TIMESTAMP, Text, ForeignKey
 from sqlalchemy.dialects.mysql import BIGINT
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from models.article_model import ArticleEntity
 
 from .base import Base
 
@@ -75,6 +76,24 @@ class FeedUpdate(BaseModel):
     description: Optional[str] = None
     favicon: Optional[str] = None
     theme_id: Optional[int] = None
+
+
+class ArticleInFeedInput(BaseModel):
+    title: str
+    url: str
+    description: Optional[str] = None
+    publication_date: Optional[datetime] = None
+
+
+class FeedDataAND_ARTICLE(BaseModel):
+    user_id: int
+    url: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    favicon: Optional[str] = None
+    theme_id: Optional[int] = None
+    articles: List[ArticleInFeedInput] = Field(default_factory=list)
+
 
 
 class FeedResponse(FeedBase):

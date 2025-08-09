@@ -17,6 +17,8 @@ from fastapi.responses import Response
 from feedgenerator import Rss201rev2Feed
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+from models.feed_model import FeedDataAND_ARTICLE, FeedEntity
+from models.article_model import ArticleEntity
 
 router = APIRouter(
     prefix="/api/service-feeds",
@@ -261,6 +263,68 @@ async def get_feed(url: str, db: Session = Depends(get_db)):
             }
         )
 
+
+# save feed with articles (payload provides same shape as retrieval articles)
+@router.post("/save-feed")
+async def save_feed(feed_data: FeedDataAND_ARTICLE, db: Session = Depends(get_db)):
+    try:
+        # Validate URL
+        if not feed_data.url.startswith(("http://", "https://")):
+            return JSONResponse(status_code=400, content={"message": "URL invalide", "data": {}})
+
+        # Create FeedEntity
+        feed = FeedEntity(
+            user_id=feed_data.user_id,
+            theme_id=feed_data.theme_id,
+            title=feed_data.title,
+            url=feed_data.url,
+            description=feed_data.description,
+            favicon=feed_data.favicon,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+        )
+        db.add(feed)
+        db.flush()  # obtain feed.id without full commit
+
+        # Create ArticleEntity entries
+        for a in feed_data.articles:
+            article = ArticleEntity(
+                feed_id=feed.id,
+                title=a.title,
+                url=a.url,
+                description=a.description,
+                publication_date=a.publication_date,
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+            )
+            db.add(article)
+
+        db.commit()
+
+        # Build response in same format as /feed
+        response_payload = {
+            "site": {
+                "title": feed.title,
+                "url": feed.url,
+                "description": feed.description or "",
+                "favicon": feed.favicon,
+            },
+            "articles": [
+                {
+                    "title": a.title,
+                    "url": a.url,
+                    "description": a.description,
+                    "publication_date": a.publication_date.isoformat() if a.publication_date else None,
+                }
+                for a in db.query(ArticleEntity).filter(ArticleEntity.feed_id == feed.id).all()
+            ],
+        }
+
+        return JSONResponse(status_code=200, content={"message": "Feed saved successfully", "data": response_payload})
+
+    except Exception as e:
+        db.rollback()
+        return JSONResponse(status_code=500, content={"message": "error internal", "data": f"Error internal: {str(e)}"})
 
 #get feed about some subjet
 @router.get("/feed-subject")
