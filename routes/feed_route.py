@@ -15,7 +15,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
 from fastapi.responses import Response
 from feedgenerator import Rss201rev2Feed
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 router = APIRouter(
@@ -167,12 +167,48 @@ def extract_articles(url: str, soup: BeautifulSoup):
     
     return articles
 
-@router.get("/feed", response_model=StandardResponse)
+def generate_feed_data(url: str, site_info: Dict[str, Any], articles: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Génère une structure de données JSON à partir des informations du site et des articles.
+    
+    Args:
+        url: URL du site source
+        site_info: Dictionnaire contenant les informations du site
+        articles: Liste des articles extraits
+        
+    Returns:
+        Dict: Structure de données contenant les informations du flux
+    """
+    return {
+        "site": {
+            "title": site_info["title"],
+            "url": url,
+            "description": site_info["description"],
+            "favicon": site_info["icon_url"]
+        },
+        "articles": [
+            {
+                "title": article["title"],
+                "url": article["link"] or url,
+                "description": article["description"],
+                "publication_date": article["pub_date"].isoformat() if article["pub_date"] else None
+            }
+            for article in articles
+        ]
+    }
+
+@router.get("/feed")
 async def get_feed(url: str, db: Session = Depends(get_db)):
     try:
         # Vérifier l'URL
         if not url.startswith(('http://', 'https://')):
-            raise HTTPException(status_code=400, detail="URL invalide")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "message": "URL invalide",
+                    "data": {}
+                }
+            )
             
         # Faire la requête HTTP
         response = requests.get(url)
@@ -184,52 +220,64 @@ async def get_feed(url: str, db: Session = Depends(get_db)):
         # Obtenir les informations du site
         site_info = get_site_info(url)
         
-        # Créer le flux RSS
-        feed = Rss201rev2Feed(
-            title=site_info["title"],
-            link=url,
-            description=site_info["description"],
-            language="fr",
-            image_url=site_info["icon_url"]
-        )
-        
-        # Extraire et ajouter les articles
+        # Extraire les articles
         articles = extract_articles(url, soup)
         
         if not articles:
-            return StandardResponse(statusCode=404, message="Aucun article trouvé sur cette page", data={})
-            
-        for article in articles:
-            feed.add_item(
-                title=article["title"],
-                link=article["link"] or url,
-                description=article["description"],
-                pubdate=article["pub_date"]
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "message": "no article found",
+                    "data": {}
+                }
             )
         
-        # Générer le XML
-        return StandardResponse(
-            statusCode=200,
-            message="Feed generated successfully",
-            data={"feed": feed.writeString('utf-8')}
+        # Générer la structure de données
+        feed_data = generate_feed_data(url, site_info, articles)
+        
+        # Retourner la réponse JSON
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "Feed generated successfully",
+                "data": feed_data
+            }
         )
         
     except requests.exceptions.RequestException as e:
-        return StandardResponse(statusCode=400, message=f"Erreur lors de la requête HTTP: {str(e)}", data={})
+        return JSONResponse(
+            status_code=400,
+            content={
+                "message":"error http request",
+                "data": f"Error HTTP request: {str(e)}"
+            }
+        )
     except Exception as e:
-        return StandardResponse(statusCode=500, message=f"Erreur interne: {str(e)}", data={})
+        return JSONResponse(
+            status_code=500,
+            content={
+                "message":"error internal",
+                "data": f"Error internal: {str(e)}"
+            }
+        )
 
 
 #get feed about some subjet
-@router.get("/feed-subject", response_model=StandardResponse)
+@router.get("/feed-subject")
 async def get_feed_subject(subject: str, db: Session = Depends(get_db)):
     try:
-        # Vérifier l'URL
+        # Vérifier le sujet
         if not subject:
-            raise HTTPException(status_code=400, detail="Subject is required")
+            return JSONResponse(
+                status_code=400, 
+                content={
+                    "message": "Subject is required",
+                    "data": {}
+                }
+            )
             
         # Faire la requête HTTP
-        response = requests.get(f"https://news.google.com/search?q={subject}")
+        response = requests.get(f"https://news.google.com/search?q={subject}&hl=fr&gl=FR&ceid=FR:fr")
         response.raise_for_status()
         
         # Parser le HTML
@@ -238,48 +286,64 @@ async def get_feed_subject(subject: str, db: Session = Depends(get_db)):
         # Obtenir les informations du site
         site_info = get_site_info(response.url)
         
-        # Créer le flux RSS
-        feed = Rss201rev2Feed(
-            title=site_info["title"],
-            link=response.url,
-            description=site_info["description"],
-            language="fr",
-            image_url=site_info["icon_url"]
-        )
-        
-        # Extraire et ajouter les articles
+        # Extraire les articles
         articles = extract_articles(response.url, soup)
         
         if not articles:
-            return StandardResponse(statusCode=404, message="Aucun article trouvé sur cette page", data={})
-            
-        for article in articles:
-            feed.add_item(
-                title=article["title"],
-                link=article["link"] or response.url,
-                description=article["description"],
-                pubdate=article["pub_date"]
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "message": "no article found",
+                    "data": {}
+                }
             )
         
-        # Générer le XML
-        return StandardResponse(
-            statusCode=200,
-            message="Feed generated successfully",
-            data={"feed": feed.writeString('utf-8')}
+        # Générer la structure de données
+        feed_data = {
+            "site": {
+                "title": site_info["title"],
+                "url": response.url,
+                "description": site_info["description"],
+                "favicon": site_info["icon_url"]
+            },
+            "articles": [
+                {
+                    "title": article["title"],
+                    "url": article["link"] or response.url,
+                    "description": article["description"],
+                    "publication_date": article["pub_date"].isoformat() if article["pub_date"] else None
+                }
+                for article in articles
+            ]
+        }
+        
+        # Retourner la réponse JSON
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "feed generated successfully",
+                "data": feed_data
+            }
         )
         
     except requests.exceptions.RequestException as e:
-        return StandardResponse(statusCode=400, message=f"Erreur lors de la requête HTTP: {str(e)}", data={})
+        return JSONResponse(status_code=400, content={"message":f"Erreur lors de la requête HTTP: {str(e)}"})
     except Exception as e:
-        return StandardResponse(statusCode=500, message=f"Erreur interne: {str(e)}", data={})
+        return JSONResponse(status_code=500, content={"message":f"Erreur interne: {str(e)}"})
 
 #get feed about some subjet and url 
-@router.get("/feed-subject-url", response_model=StandardResponse)
+@router.get("/feed-subject-url")
 async def get_feed_subject_url(subject: str, url: str, db: Session = Depends(get_db)):
     try:
         # Vérifier l'URL
         if not url.startswith(('http://', 'https://')):
-            raise HTTPException(status_code=400, detail="URL invalide")
+            return JSONResponse(
+                status_code=400, 
+                content={
+                    "message": "URL invalide",
+                    "data": {}
+                }
+            )
             
         # Faire la requête HTTP
         response = requests.get(url)
@@ -291,44 +355,60 @@ async def get_feed_subject_url(subject: str, url: str, db: Session = Depends(get
         # Obtenir les informations du site
         site_info = get_site_info(url)
         
-        # Créer le flux RSS
-        feed = Rss201rev2Feed(
-            title=site_info["title"],
-            link=url,
-            description=site_info["description"],
-            language="fr",
-            image_url=site_info["icon_url"]
-        )
-        
-        # Extraire et ajouter les articles
+        # Extraire les articles
         articles = extract_articles(url, soup)
 
-        #recuperer les articles qui ont trait au suject meme dans la description
-        articles = [article for article in articles if subject.lower() in article["title"].lower() or subject.lower() in article["description"].lower()]
+        # Filtrer les articles en fonction du sujet
+        articles = [
+            article for article in articles 
+            if subject.lower() in article["title"].lower() or 
+               subject.lower() in article["description"].lower()
+        ]
         
         if not articles:
-            return StandardResponse(statusCode=404, message="Aucun article trouvé sur cette page", data={})
-            
-        for article in articles:
-            feed.add_item(
-                title=article["title"],
-                link=article["link"] or url,
-                description=article["description"],
-                pubdate=article["pub_date"]
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "message": "no article found for this subject",
+                    "data": {}
+                }
             )
         
-        # Générer le XML
-        return StandardResponse(
-            statusCode=200,
-            message="Feed generated successfully",
-            data={"feed": feed.writeString('utf-8')}
+        # Créer la structure de données
+        feed_data = {
+            "site": {
+                "title": site_info["title"],
+                "url": url,
+                "description": site_info["description"],
+                "favicon": site_info["icon_url"]
+            },
+            "articles": [
+                {
+                    "title": article["title"],
+                    "url": article["link"] or url,
+                    "description": article["description"],
+                    "publication_date": article["pub_date"].isoformat() if article["pub_date"] else None
+                }
+                for article in articles
+            ]
+        }
+        
+        # Retourner la réponse JSON
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "feed generated successfully",
+                "data": feed_data
+            }
         )
         
     except requests.exceptions.RequestException as e:
-        return StandardResponse(statusCode=400, message=f"Erreur lors de la requête HTTP: {str(e)}", data={})
+        return JSONResponse(status_code=400, content={"message":f"Erreur lors de la requête HTTP: {str(e)}"})
     except Exception as e:
-        return StandardResponse(statusCode=500, message=f"Erreur interne: {str(e)}", data={})
+        return JSONResponse(status_code=500, content={"message":f"Erreur interne: {str(e)}"})
 
+
+# scraper yahoo news
 def scrape_yahoo_news(subject: str, max_results: int = 10):
     """Scraper Yahoo Actualités pour un sujet donné"""
     articles = []
@@ -564,12 +644,15 @@ def get_multi_source_articles(subject: str, sources: list = None, max_per_source
 @router.get("/multi-sources/{subject}")
 async def get_multi_source_feed(subject: str, sources: str = "yahoo,bing,baidu", max_per_source: int = 5, db: Session = Depends(get_db)):
     """
-    Générer un feed RSS à partir de plusieurs sources (Yahoo, Bing, Baidu) pour un sujet donné
+    Récupérer des articles de plusieurs sources (Yahoo, Bing, Baidu) pour un sujet donné
     
     Args:
         subject: Le sujet à rechercher
         sources: Sources séparées par des virgules (yahoo,bing,baidu)
         max_per_source: Nombre maximum d'articles par source
+    
+    Returns:
+        JSON: Structure de données contenant les articles des différentes sources
     """
     try:
         # Parser les sources
@@ -578,112 +661,162 @@ async def get_multi_source_feed(subject: str, sources: str = "yahoo,bing,baidu",
         source_list = [s for s in source_list if s in valid_sources]
         
         if not source_list:
-            return StandardResponse(statusCode=400, message="Aucune source valide spécifiée", data={})
+            return JSONResponse(
+                status_code=400, 
+                content={
+                    "message": "no valid source specified",
+                    "data": {}
+                }
+            )
         
         # Récupérer les articles de toutes les sources
         articles = get_multi_source_articles(subject, source_list, max_per_source)
         
         if not articles:
-            return StandardResponse(statusCode=404, message="Aucun article trouvé", data={})
-        
-        # Créer le feed RSS
-        feed = Rss201rev2Feed(
-            title=f"Actualités multi-sources: {subject}",
-            link="https://kairos-scraping.com",
-            description=f"Articles sur '{subject}' provenant de {', '.join(source_list)}",
-            language="fr-fr",
-        )
-        
-        for article in articles:
-            feed.add_item(
-                title=f"[{article['source']}] {article['title']}",
-                link=article["link"],
-                description=article["description"],
-                pubdate=article["pub_date"]
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "message": "no article found",
+                    "data": {}
+                }
             )
         
-        return StandardResponse(
-            statusCode=200,
-            message=f"Feed généré avec {len(articles)} articles de {len(source_list)} sources",
-            data={"feed": feed.writeString('utf-8')}
+        # Créer la structure de données
+        feed_data = {
+            "subject": subject,
+            "sources": source_list,
+            "total_articles": len(articles),
+            "articles": [
+                {
+                    "title": article["title"],
+                    "url": article["link"],
+                    "description": article["description"],
+                    "source": article["source"],
+                    "publication_date": article["pub_date"].isoformat() if article["pub_date"] else None
+                }
+                for article in articles
+            ]
+        }
+        
+        # Retourner la réponse JSON
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": f"successfully retrieved {len(articles)} articles from {len(source_list)} sources",
+                "data": feed_data
+            }
         )
         
     except Exception as e:
-        return StandardResponse(statusCode=500, message=f"Erreur interne: {str(e)}", data={})
+        return JSONResponse(status_code=500, content={"message":f"Erreur interne: {str(e)}"})
 
 
 @router.get("/yahoo-news/{subject}")
 async def get_yahoo_news_feed(subject: str, max_results: int = 10, db: Session = Depends(get_db)):
     """
-    Générer un feed RSS à partir de Yahoo Actualités pour un sujet donné
+    Récupérer les actualités Yahoo pour un sujet donné
+    
+    Args:
+        subject: Sujet de recherche
+        max_results: Nombre maximum d'articles à retourner
+        
+    Returns:
+        JSON: Structure de données contenant les articles de Yahoo Actualités
     """
     try:
         articles = scrape_yahoo_news(subject, max_results)
         
         if not articles:
-            return StandardResponse(statusCode=404, message="Aucun article trouvé sur Yahoo Actualités", data={})
-        
-        # Créer le feed RSS
-        feed = Rss201rev2Feed(
-            title=f"Yahoo Actualités: {subject}",
-            link="https://fr.news.yahoo.com",
-            description=f"Articles Yahoo sur '{subject}'",
-            language="fr-fr",
-        )
-        
-        for article in articles:
-            feed.add_item(
-                title=article["title"],
-                link=article["link"],
-                description=article["description"],
-                pubdate=article["pub_date"]
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "message": "no article found on Yahoo News",
+                    "data": {}
+                }
             )
         
-        return StandardResponse(
-            statusCode=200,
-            message=f"Feed Yahoo généré avec {len(articles)} articles",
-            data={"feed": feed.writeString('utf-8')}
+        # Créer la structure de données
+        feed_data = {
+            "source": "Yahoo News",
+            "subject": subject,
+            "total_articles": len(articles),
+            "articles": [
+                {
+                    "title": article["title"],
+                    "url": article["link"],
+                    "description": article["description"],
+                    "publication_date": article["pub_date"].isoformat() if article["pub_date"] else None,
+                    "source": article.get("source", "Yahoo News")
+                }
+                for article in articles
+            ]
+        }
+        
+        # Retourner la réponse JSON
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": f"successfully retrieved {len(articles)} articles from Yahoo News",
+                "data": feed_data
+            }
         )
         
     except Exception as e:
-        return StandardResponse(statusCode=500, message=f"Erreur Yahoo News: {str(e)}", data={})
+        return JSONResponse(status_code=500, content={"message":f"Erreur Yahoo News: {str(e)}"})
 
 
 @router.get("/bing-news/{subject}")
 async def get_bing_news_feed(subject: str, max_results: int = 10, db: Session = Depends(get_db)):
     """
-    Générer un feed RSS à partir de Bing News pour un sujet donné
+    Récupérer les actualités Bing pour un sujet donné
+    
+    Args:
+        subject: Sujet de recherche
+        max_results: Nombre maximum d'articles à retourner
+        
+    Returns:
+        JSON: Structure de données contenant les articles de Bing News
     """
     try:
         articles = scrape_bing_news(subject, max_results)
         
         if not articles:
-            return StandardResponse(statusCode=404, message="Aucun article trouvé sur Bing News", data={})
-        
-        # Créer le feed RSS
-        feed = Rss201rev2Feed(
-            title=f"Bing News: {subject}",
-            link="https://www.bing.com/news",
-            description=f"Articles Bing sur '{subject}'",
-            language="fr-fr",
-        )
-        
-        for article in articles:
-            feed.add_item(
-                title=article["title"],
-                link=article["link"],
-                description=article["description"],
-                pubdate=article["pub_date"]
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "message": "no article found on Bing News",
+                    "data": {}
+                }
             )
         
-        return StandardResponse(
-            statusCode=200,
-            message=f"Feed Bing généré avec {len(articles)} articles",
-            data={"feed": feed.writeString('utf-8')}
+        # Créer la structure de données
+        feed_data = {
+            "source": "Bing News",
+            "subject": subject,
+            "total_articles": len(articles),
+            "articles": [
+                {
+                    "title": article["title"],
+                    "url": article["link"],
+                    "description": article["description"],
+                    "publication_date": article["pub_date"].isoformat() if article["pub_date"] else None,
+                    "source": article.get("source", "Bing News")
+                }
+                for article in articles
+            ]
+        }
+        
+        # Retourner la réponse JSON
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": f"successfully retrieved {len(articles)} articles from Bing News",
+                "data": feed_data
+            }
         )
         
     except Exception as e:
-        return StandardResponse(statusCode=500, message=f"Erreur Bing News: {str(e)}", data={})
+        return JSONResponse(status_code=500, content={"message":f"Erreur Bing News: {str(e)}"})
 
 
 @router.get("/baidu-news/{subject}")
@@ -695,7 +828,7 @@ async def get_baidu_news_feed(subject: str, max_results: int = 10, db: Session =
         articles = scrape_baidu_news(subject, max_results)
         
         if not articles:
-            return StandardResponse(statusCode=404, message="Aucun article trouvé sur Baidu News", data={})
+            return JSONResponse(status_code=404, content={"message":"Aucun article trouvé sur Baidu News"})
         
         # Créer le feed RSS
         feed = Rss201rev2Feed(
@@ -713,11 +846,13 @@ async def get_baidu_news_feed(subject: str, max_results: int = 10, db: Session =
                 pubdate=article["pub_date"]
             )
         
-        return StandardResponse(
-            statusCode=200,
-            message=f"Feed Baidu généré avec {len(articles)} articles",
-            data={"feed": feed.writeString('utf-8')}
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message":f"Feed Baidu généré avec {len(articles)} articles",
+                "feed": feed.writeString('utf-8')
+            }
         )
         
     except Exception as e:
-        return StandardResponse(statusCode=500, message=f"Erreur Baidu News: {str(e)}", data={})
+        return JSONResponse(status_code=500, content={"message":f"Erreur Baidu News: {str(e)}"})

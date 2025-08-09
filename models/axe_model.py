@@ -10,7 +10,7 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, func, text, F
 from sqlalchemy.dialects.mysql import BIGINT, DOUBLE, INTEGER, LONGTEXT, MEDIUMTEXT, TINYINT, YEAR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from utils.database import Base
+from .base import Base
 
 from sqlalchemy import Date, DateTime, Enum, ForeignKeyConstraint, Index, String, TIMESTAMP, Text, Time, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
